@@ -11,19 +11,19 @@ impl DB {
         }
     }
 
-    pub fn get(&self,item: &str) -> String{
-        if let Some(value) = self.items.get(&item.to_string()){
+    pub fn get(&self,item: String) -> String{
+        if let Some(value) = self.items.get(&item){
             return value.to_string();
         } else {
             return String::from("");
         }
     }
 
-    pub fn set(&mut self,item: &str,value: &str) {
-        self.items.insert(item.to_string(),value.to_string());
+    pub fn set(&mut self,item: String,value: String) {
+        self.items.insert(item,value);
     }
 
-    pub fn del(&mut self,item: &str) {
-        self.items.insert(item.to_string(),"".to_string());
+    pub fn del(&mut self,item: String) {
+        self.items.remove(&item);
     }
 }

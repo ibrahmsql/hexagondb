@@ -16,7 +16,10 @@ impl Interpreter {
         if let Some(cmd) = tokens.get(0).cloned() {
             if let Some(item) = tokens.get(1).cloned() {
                 if cmd.to_uppercase() == "GET" {
-                    return self.db.get(item);
+                    return match self.db.get(item) {
+                        Some(value) => value,
+                        None => String::from("(nil)"),
+                    };
                 } else if cmd.to_uppercase() == "SET" {
                     if let Some(value) = tokens.get(2).cloned() {
                         self.db.set(item, value);

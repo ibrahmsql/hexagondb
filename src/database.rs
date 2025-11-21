@@ -11,12 +11,8 @@ impl DB {
         }
     }
 
-    pub fn get(&self,item: String) -> String{
-        if let Some(value) = self.items.get(&item){
-            return value.to_string();
-        } else {
-            return String::from("");
-        }
+    pub fn get(&self, item: String) -> Option<String> {
+        self.items.get(&item).cloned()
     }
 
     pub fn set(&mut self,item: String,value: String) {

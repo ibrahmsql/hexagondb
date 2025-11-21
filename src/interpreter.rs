@@ -37,6 +37,10 @@ impl Interpreter {
                     let mut db = self.db.lock();
                     db.del(item);
                     return String::from(":1");
+                } else if cmd.to_uppercase() == "EXISTS" {
+                    let db = self.db.lock();
+                    let exists = db.exists(item);
+                    return if exists { String::from(":1") } else { String::from(":0") };
                 }
             }
         }

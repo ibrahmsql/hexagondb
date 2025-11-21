@@ -22,4 +22,8 @@ impl DB {
     pub fn del(&mut self,item: String) {
         self.items.remove(&item);
     }
+
+    pub fn exists(&self, item: String) -> bool {
+        self.items.contains_key(&item)
+    }
 }

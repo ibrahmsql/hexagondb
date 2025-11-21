@@ -1,6 +1,12 @@
 [package]
 name = "hexagondb"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+authors = ["HexagonDB Contributors"]
+description = "A fast, in-memory key-value database written in Rust"
+license = "MIT"
+repository = "https://github.com/yourusername/hexagondb"
+keywords = ["database", "key-value", "in-memory", "redis"]
+categories = ["database"]
 
 [dependencies]

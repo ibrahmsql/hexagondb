@@ -18,6 +18,17 @@ impl Interpreter {
         debug!("Executing command: {:?}", tokens);
 
         if let Some(cmd) = tokens.get(0).cloned() {
+            // Handle KEYS command (can be called with just pattern)
+            if cmd.to_uppercase() == "KEYS" {
+                if let Some(pattern) = tokens.get(1).cloned() {
+                    let db = self.db.lock();
+                    let keys = db.keys(pattern);
+                    return keys.join(" ");
+                } else {
+                    return String::from("-ERR wrong number of arguments for 'KEYS' command");
+                }
+            }
+            
             if let Some(item) = tokens.get(1).cloned() {
                 if cmd.to_uppercase() == "GET" {
                     let db = self.db.lock();

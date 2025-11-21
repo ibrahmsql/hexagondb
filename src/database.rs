@@ -26,4 +26,25 @@ impl DB {
     pub fn exists(&self, item: String) -> bool {
         self.items.contains_key(&item)
     }
+
+    pub fn keys(&self, pattern: String) -> Vec<String> {
+        if pattern == "*" {
+            // Return all keys
+            self.items.keys().cloned().collect()
+        } else if pattern.contains('*') {
+            // Simple wildcard matching
+            let prefix = pattern.trim_end_matches('*');
+            self.items.keys()
+                .filter(|k| k.starts_with(prefix))
+                .cloned()
+                .collect()
+        } else {
+            // Exact match
+            if self.items.contains_key(&pattern) {
+                vec![pattern]
+            } else {
+                vec![]
+            }
+        }
+    }
 }

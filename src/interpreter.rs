@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
+use tracing::{debug, warn};
 use crate::{database::DB, parse_query};
 
 pub struct Interpreter {
@@ -14,6 +15,7 @@ impl Interpreter {
 
     pub fn exec(&mut self, query: String) -> String {
         let tokens: Vec<String> = parse_query::parse_query(query.to_string());
+        debug!("Executing command: {:?}", tokens);
 
         if let Some(cmd) = tokens.get(0).cloned() {
             if let Some(item) = tokens.get(1).cloned() {
@@ -39,7 +41,7 @@ impl Interpreter {
             }
         }
 
-        
+        warn!("Unknown command: {:?}", tokens);
         String::from("-ERR unknown command")
     }
 }

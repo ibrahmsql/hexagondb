@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 pub enum DataType {
     String(String),
     List(Vec<String>),
+    Hash(HashMap<String, String>),
 }
 
 #[derive(Clone)]
@@ -175,8 +176,7 @@ impl DB {
                 }
                 list.len()
             },
-            _ => 0, // Should return error but for simplicity returning 0 (or panic?) Redis returns error.
-            // We should change signature to Result
+            _ => 0,
         }
     }
     
@@ -240,7 +240,6 @@ impl DB {
                     if val.is_some() {
                         list.remove(0);
                     }
-                    // If empty, should we remove key? Redis does.
                     if list.is_empty() {
                         self.items.remove(&key);
                     }
@@ -311,6 +310,82 @@ impl DB {
             }
         } else {
             Ok(Vec::new())
+        }
+    }
+
+    // Hash Operations
+    pub fn hset(&mut self, key: String, field: String, value: String) -> Result<usize, String> {
+        self.check_expiration(&key);
+        
+        if let Some(entry) = self.items.get_mut(&key) {
+            match &mut entry.value {
+                DataType::Hash(map) => {
+                    let is_new = !map.contains_key(&field);
+                    map.insert(field, value);
+                    return Ok(if is_new { 1 } else { 0 });
+                },
+                _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string()),
+            }
+        }
+        
+        let mut map = HashMap::new();
+        map.insert(field, value);
+        self.items.insert(key, Entry {
+            value: DataType::Hash(map),
+            expires_at: None,
+        });
+        Ok(1)
+    }
+
+    pub fn hget(&mut self, key: String, field: String) -> Result<Option<String>, String> {
+        self.check_expiration(&key);
+        
+        if let Some(entry) = self.items.get(&key) {
+            match &entry.value {
+                DataType::Hash(map) => Ok(map.get(&field).cloned()),
+                _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string()),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn hgetall(&mut self, key: String) -> Result<Vec<String>, String> {
+        self.check_expiration(&key);
+        
+        if let Some(entry) = self.items.get(&key) {
+            match &entry.value {
+                DataType::Hash(map) => {
+                    let mut result = Vec::new();
+                    for (k, v) in map {
+                        result.push(k.clone());
+                        result.push(v.clone());
+                    }
+                    Ok(result)
+                },
+                _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string()),
+            }
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    pub fn hdel(&mut self, key: String, field: String) -> Result<usize, String> {
+        self.check_expiration(&key);
+        
+        if let Some(entry) = self.items.get_mut(&key) {
+            match &mut entry.value {
+                DataType::Hash(map) => {
+                    let removed = map.remove(&field).is_some();
+                    if map.is_empty() {
+                        self.items.remove(&key);
+                    }
+                    Ok(if removed { 1 } else { 0 })
+                },
+                _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value".to_string()),
+            }
+        } else {
+            Ok(0)
         }
     }
 

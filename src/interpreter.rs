@@ -178,6 +178,66 @@ impl Interpreter {
                         },
                         _ => return RespValue::Error("value is not an integer or out of range".to_string()),
                     }
+                } else if cmd_upper == "HSET" {
+                    if tokens.len() != 4 {
+                        return RespValue::Error("wrong number of arguments for 'HSET' command".to_string());
+                    }
+                    let field = tokens[2].clone();
+                    let value = tokens[3].clone();
+                    
+                    let mut db = self.db.lock();
+                    match db.hset(item, field, value) {
+                        Ok(val) => {
+                            // Persist to AOF
+                            let mut aof = self.aof.lock();
+                            if let Err(e) = aof.append(tokens.clone()) {
+                                error!("Failed to append to AOF: {}", e);
+                            }
+                            return RespValue::Integer(val as i64);
+                        },
+                        Err(e) => return RespValue::Error(e),
+                    }
+                } else if cmd_upper == "HGET" {
+                    if tokens.len() != 3 {
+                        return RespValue::Error("wrong number of arguments for 'HGET' command".to_string());
+                    }
+                    let field = tokens[2].clone();
+                    
+                    let mut db = self.db.lock();
+                    match db.hget(item, field) {
+                        Ok(Some(val)) => return RespValue::BulkString(Some(val)),
+                        Ok(None) => return RespValue::BulkString(None),
+                        Err(e) => return RespValue::Error(e),
+                    }
+                } else if cmd_upper == "HGETALL" {
+                    let mut db = self.db.lock();
+                    match db.hgetall(item) {
+                        Ok(values) => {
+                            let resp_values: Vec<RespValue> = values.into_iter()
+                                .map(|s| RespValue::BulkString(Some(s)))
+                                .collect();
+                            return RespValue::Array(Some(resp_values));
+                        },
+                        Err(e) => return RespValue::Error(e),
+                    }
+                } else if cmd_upper == "HDEL" {
+                    if tokens.len() != 3 {
+                        return RespValue::Error("wrong number of arguments for 'HDEL' command".to_string());
+                    }
+                    let field = tokens[2].clone();
+                    
+                    let mut db = self.db.lock();
+                    match db.hdel(item, field) {
+                        Ok(val) => {
+                            // Persist to AOF
+                            let mut aof = self.aof.lock();
+                            if let Err(e) = aof.append(tokens.clone()) {
+                                error!("Failed to append to AOF: {}", e);
+                            }
+                            return RespValue::Integer(val as i64);
+                        },
+                        Err(e) => return RespValue::Error(e),
+                    }
                 } else if cmd_upper == "EXPIRE" {
                     if let Some(seconds_str) = tokens.get(2).cloned() {
                         if let Ok(seconds) = seconds_str.parse::<u64>() {

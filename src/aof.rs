@@ -112,6 +112,10 @@ impl Aof {
                             } else {
                                 let _ = db_guard.rpop(args[1].clone());
                             }
+                        } else if cmd == "HSET" && args.len() >= 4 {
+                            let _ = db_guard.hset(args[1].clone(), args[2].clone(), args[3].clone());
+                        } else if cmd == "HDEL" && args.len() >= 3 {
+                            let _ = db_guard.hdel(args[1].clone(), args[2].clone());
                         }
                         // Note: We don't replay read commands like GET, KEYS, etc.
                         

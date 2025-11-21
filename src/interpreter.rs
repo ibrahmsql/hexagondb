@@ -1,15 +1,17 @@
 use std::sync::Arc;
 use parking_lot::Mutex;
-use tracing::{debug, warn};
-use crate::{database::DB, parse_query, resp::RespValue};
+use tracing::{debug, warn, error};
+use crate::{database::DB, parse_query, resp::RespValue, aof::Aof};
 
 pub struct Interpreter {
-    db: Arc<Mutex<DB>>
+    db: Arc<Mutex<DB>>,
+    aof: Arc<Mutex<Aof>>,
 }
 impl Interpreter {
-    pub fn new(db: Arc<Mutex<DB>>) -> Self {
+    pub fn new(db: Arc<Mutex<DB>>, aof: Arc<Mutex<Aof>>) -> Self {
         Interpreter {
             db,
+            aof,
         }
     }
 
@@ -23,8 +25,10 @@ impl Interpreter {
         debug!("Executing command: {:?}", tokens);
 
         if let Some(cmd) = tokens.get(0).cloned() {
+            let cmd_upper = cmd.to_uppercase();
+            
             // Handle KEYS command
-            if cmd.to_uppercase() == "KEYS" {
+            if cmd_upper == "KEYS" {
                 if let Some(pattern) = tokens.get(1).cloned() {
                     let db = self.db.lock();
                     let keys = db.keys(pattern);
@@ -39,45 +43,82 @@ impl Interpreter {
             }
             
             if let Some(item) = tokens.get(1).cloned() {
-                if cmd.to_uppercase() == "GET" {
+                if cmd_upper == "GET" {
                     let mut db = self.db.lock();
                     return match db.get(item) {
                         Some(value) => RespValue::BulkString(Some(value)),
                         None => RespValue::BulkString(None),
                     };
-                } else if cmd.to_uppercase() == "SET" {
+                } else if cmd_upper == "SET" {
                     if let Some(value) = tokens.get(2).cloned() {
                         let mut db = self.db.lock();
                         db.set(item, value);
+                        
+                        // Persist to AOF
+                        let mut aof = self.aof.lock();
+                        if let Err(e) = aof.append(tokens.clone()) {
+                            error!("Failed to append to AOF: {}", e);
+                        }
+                        
                         return RespValue::SimpleString("OK".to_string());
                     } else {
                         return RespValue::Error("wrong number of arguments for 'SET' command".to_string());
                     }
-                } else if cmd.to_uppercase() == "DEL" {
+                } else if cmd_upper == "DEL" {
                     let mut db = self.db.lock();
                     db.del(item);
+                    
+                    // Persist to AOF
+                    let mut aof = self.aof.lock();
+                    if let Err(e) = aof.append(tokens.clone()) {
+                        error!("Failed to append to AOF: {}", e);
+                    }
+                    
                     return RespValue::Integer(1);
-                } else if cmd.to_uppercase() == "EXISTS" {
+                } else if cmd_upper == "EXISTS" {
                     let db = self.db.lock();
                     let exists = db.exists(item);
                     return RespValue::Integer(if exists { 1 } else { 0 });
-                } else if cmd.to_uppercase() == "INCR" {
+                } else if cmd_upper == "INCR" {
                     let mut db = self.db.lock();
                     match db.incr(item) {
-                        Ok(val) => return RespValue::Integer(val),
+                        Ok(val) => {
+                            // Persist to AOF
+                            let mut aof = self.aof.lock();
+                            if let Err(e) = aof.append(tokens.clone()) {
+                                error!("Failed to append to AOF: {}", e);
+                            }
+                            return RespValue::Integer(val);
+                        },
                         Err(e) => return RespValue::Error(e),
                     }
-                } else if cmd.to_uppercase() == "DECR" {
+                } else if cmd_upper == "DECR" {
                     let mut db = self.db.lock();
                     match db.decr(item) {
-                        Ok(val) => return RespValue::Integer(val),
+                        Ok(val) => {
+                            // Persist to AOF
+                            let mut aof = self.aof.lock();
+                            if let Err(e) = aof.append(tokens.clone()) {
+                                error!("Failed to append to AOF: {}", e);
+                            }
+                            return RespValue::Integer(val);
+                        },
                         Err(e) => return RespValue::Error(e),
                     }
-                } else if cmd.to_uppercase() == "EXPIRE" {
+                } else if cmd_upper == "EXPIRE" {
                     if let Some(seconds_str) = tokens.get(2).cloned() {
                         if let Ok(seconds) = seconds_str.parse::<u64>() {
                             let mut db = self.db.lock();
                             let result = db.expire(item, seconds);
+                            
+                            if result {
+                                // Persist to AOF
+                                let mut aof = self.aof.lock();
+                                if let Err(e) = aof.append(tokens.clone()) {
+                                    error!("Failed to append to AOF: {}", e);
+                                }
+                            }
+                            
                             return RespValue::Integer(if result { 1 } else { 0 });
                         } else {
                             return RespValue::Error("value is not an integer or out of range".to_string());
@@ -85,13 +126,22 @@ impl Interpreter {
                     } else {
                         return RespValue::Error("wrong number of arguments for 'EXPIRE' command".to_string());
                     }
-                } else if cmd.to_uppercase() == "TTL" {
+                } else if cmd_upper == "TTL" {
                     let mut db = self.db.lock();
                     let ttl = db.ttl(item);
                     return RespValue::Integer(ttl);
-                } else if cmd.to_uppercase() == "PERSIST" {
+                } else if cmd_upper == "PERSIST" {
                     let mut db = self.db.lock();
                     let result = db.persist(item);
+                    
+                    if result {
+                        // Persist to AOF
+                        let mut aof = self.aof.lock();
+                        if let Err(e) = aof.append(tokens.clone()) {
+                            error!("Failed to append to AOF: {}", e);
+                        }
+                    }
+                    
                     return RespValue::Integer(if result { 1 } else { 0 });
                 }
             }

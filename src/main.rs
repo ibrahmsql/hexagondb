@@ -1,5 +1,6 @@
 use std::net::TcpListener;
 use std::sync::Arc;
+use std::thread;
 use parking_lot::Mutex;
 
 use hexagondb::{database::DB, interpreter,connection};
@@ -14,10 +15,15 @@ fn main() -> std::io::Result<()>  {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                println!("New client connected");
                 let db_clone = Arc::clone(&db);
-                let mut client = interpreter::Interpreter::new(db_clone);
-                connection::handle_client(stream, &mut client);
+                
+                // Spawn a new thread for each client connection
+                thread::spawn(move || {
+                    println!("New client connected");
+                    let mut client = interpreter::Interpreter::new(db_clone);
+                    connection::handle_client(stream, &mut client);
+                    println!("Client disconnected");
+                });
             }
             Err(e) => println!("Connection failed: {}", e),
         }

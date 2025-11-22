@@ -1,5 +1,3 @@
-
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum RespValue {
     SimpleString(String),
@@ -100,8 +98,12 @@ impl RespHandler {
                     }
                     let str_len = len_val as usize;
                     if buffer.len() >= start + str_len + 2 {
-                        let str_val = String::from_utf8_lossy(&buffer[start..start + str_len]).to_string();
-                        Ok(Some((RespValue::BulkString(Some(str_val)), start + str_len + 2)))
+                        let str_val =
+                            String::from_utf8_lossy(&buffer[start..start + str_len]).to_string();
+                        Ok(Some((
+                            RespValue::BulkString(Some(str_val)),
+                            start + str_len + 2,
+                        )))
                     } else {
                         Ok(None) // Incomplete
                     }
@@ -115,7 +117,7 @@ impl RespHandler {
                     if count == -1 {
                         return Ok(Some((RespValue::Array(None), current_pos)));
                     }
-                    
+
                     let mut items = Vec::new();
                     for _ in 0..count {
                         if let Ok(Some((item, len))) = Self::parse_request(&buffer[current_pos..]) {
@@ -134,8 +136,10 @@ impl RespHandler {
                 // Inline command (simple space-separated like "GET key")
                 // This is for backward compatibility and simple telnet usage
                 if let Some((line, len)) = Self::read_line(buffer) {
-                    let parts: Vec<String> = line.split_whitespace().map(|s| s.to_string()).collect();
-                    let args: Vec<RespValue> = parts.into_iter()
+                    let parts: Vec<String> =
+                        line.split_whitespace().map(|s| s.to_string()).collect();
+                    let args: Vec<RespValue> = parts
+                        .into_iter()
                         .map(|s| RespValue::BulkString(Some(s)))
                         .collect();
                     Ok(Some((RespValue::Array(Some(args)), len)))
@@ -173,7 +177,7 @@ mod tests {
     fn test_serialize_bulk_string() {
         let val = RespValue::BulkString(Some("hello".to_string()));
         assert_eq!(val.serialize(), "$5\r\nhello\r\n");
-        
+
         let null_val = RespValue::BulkString(None);
         assert_eq!(null_val.serialize(), "$-1\r\n");
     }
@@ -182,10 +186,10 @@ mod tests {
     fn test_serialize_array() {
         let val = RespValue::Array(Some(vec![
             RespValue::BulkString(Some("hello".to_string())),
-            RespValue::BulkString(Some("world".to_string()))
+            RespValue::BulkString(Some("world".to_string())),
         ]));
         assert_eq!(val.serialize(), "*2\r\n$5\r\nhello\r\n$5\r\nworld\r\n");
-        
+
         let null_arr = RespValue::Array(None);
         assert_eq!(null_arr.serialize(), "*-1\r\n");
     }
@@ -194,23 +198,23 @@ mod tests {
     fn test_parse_array() {
         let data = b"*2\r\n$5\r\nhello\r\n$5\r\nworld\r\n";
         let (val, len) = RespHandler::parse_request(data).unwrap().unwrap();
-        
+
         assert_eq!(len, data.len());
         match val {
             RespValue::Array(Some(items)) => {
                 assert_eq!(items.len(), 2);
                 assert_eq!(items[0], RespValue::BulkString(Some("hello".to_string())));
                 assert_eq!(items[1], RespValue::BulkString(Some("world".to_string())));
-            },
+            }
             _ => panic!("Expected Array"),
         }
     }
-    
+
     #[test]
     fn test_parse_inline() {
         let data = b"SET key value\r\n";
         let (val, len) = RespHandler::parse_request(data).unwrap().unwrap();
-        
+
         assert_eq!(len, data.len());
         match val {
             RespValue::Array(Some(items)) => {
@@ -218,7 +222,7 @@ mod tests {
                 assert_eq!(items[0], RespValue::BulkString(Some("SET".to_string())));
                 assert_eq!(items[1], RespValue::BulkString(Some("key".to_string())));
                 assert_eq!(items[2], RespValue::BulkString(Some("value".to_string())));
-            },
+            }
             _ => panic!("Expected Array"),
         }
     }

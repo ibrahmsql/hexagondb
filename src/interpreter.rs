@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use crate::{aof::Aof, database::DB, parse_query, resp::RespValue};
 use parking_lot::Mutex;
-use tracing::{debug, warn, error};
-use crate::{database::DB, parse_query, resp::RespValue, aof::Aof};
+use std::sync::Arc;
+use tracing::{debug, error, warn};
 
 pub struct Interpreter {
     db: Arc<Mutex<DB>>,
@@ -9,10 +9,7 @@ pub struct Interpreter {
 }
 impl Interpreter {
     pub fn new(db: Arc<Mutex<DB>>, aof: Arc<Mutex<Aof>>) -> Self {
-        Interpreter {
-            db,
-            aof,
-        }
+        Interpreter { db, aof }
     }
 
     pub fn exec(&mut self, query: String) -> String {
@@ -26,22 +23,25 @@ impl Interpreter {
 
         if let Some(cmd) = tokens.get(0).cloned() {
             let cmd_upper = cmd.to_uppercase();
-            
+
             // Handle KEYS command
             if cmd_upper == "KEYS" {
                 if let Some(pattern) = tokens.get(1).cloned() {
                     let db = self.db.lock();
                     let keys = db.keys(pattern);
                     // Convert Vec<String> to RespValue::Array
-                    let resp_keys: Vec<RespValue> = keys.into_iter()
+                    let resp_keys: Vec<RespValue> = keys
+                        .into_iter()
                         .map(|k| RespValue::BulkString(Some(k)))
                         .collect();
                     return RespValue::Array(Some(resp_keys));
                 } else {
-                    return RespValue::Error("wrong number of arguments for 'KEYS' command".to_string());
+                    return RespValue::Error(
+                        "wrong number of arguments for 'KEYS' command".to_string(),
+                    );
                 }
             }
-            
+
             if let Some(item) = tokens.get(1).cloned() {
                 if cmd_upper == "GET" {
                     let mut db = self.db.lock();
@@ -54,27 +54,29 @@ impl Interpreter {
                     if let Some(value) = tokens.get(2).cloned() {
                         let mut db = self.db.lock();
                         db.set(item, value);
-                        
+
                         // Persist to AOF
                         let mut aof = self.aof.lock();
                         if let Err(e) = aof.append(tokens.clone()) {
                             error!("Failed to append to AOF: {}", e);
                         }
-                        
+
                         return RespValue::SimpleString("OK".to_string());
                     } else {
-                        return RespValue::Error("wrong number of arguments for 'SET' command".to_string());
+                        return RespValue::Error(
+                            "wrong number of arguments for 'SET' command".to_string(),
+                        );
                     }
                 } else if cmd_upper == "DEL" {
                     let mut db = self.db.lock();
                     db.del(item);
-                    
+
                     // Persist to AOF
                     let mut aof = self.aof.lock();
                     if let Err(e) = aof.append(tokens.clone()) {
                         error!("Failed to append to AOF: {}", e);
                     }
-                    
+
                     return RespValue::Integer(1);
                 } else if cmd_upper == "EXISTS" {
                     let db = self.db.lock();
@@ -90,7 +92,7 @@ impl Interpreter {
                                 error!("Failed to append to AOF: {}", e);
                             }
                             return RespValue::Integer(val);
-                        },
+                        }
                         Err(e) => return RespValue::Error(e),
                     }
                 } else if cmd_upper == "DECR" {
@@ -103,16 +105,19 @@ impl Interpreter {
                                 error!("Failed to append to AOF: {}", e);
                             }
                             return RespValue::Integer(val);
-                        },
+                        }
                         Err(e) => return RespValue::Error(e),
                     }
                 } else if cmd_upper == "LPUSH" || cmd_upper == "RPUSH" {
                     if tokens.len() < 3 {
-                        return RespValue::Error(format!("wrong number of arguments for '{}' command", cmd_upper));
+                        return RespValue::Error(format!(
+                            "wrong number of arguments for '{}' command",
+                            cmd_upper
+                        ));
                     }
                     let values = tokens[2..].to_vec();
                     let mut db = self.db.lock();
-                    
+
                     let result = if cmd_upper == "LPUSH" {
                         db.lpush_safe(item, values)
                     } else {
@@ -127,7 +132,7 @@ impl Interpreter {
                                 error!("Failed to append to AOF: {}", e);
                             }
                             return RespValue::Integer(len as i64);
-                        },
+                        }
                         Err(e) => return RespValue::Error(e),
                     }
                 } else if cmd_upper == "LPOP" || cmd_upper == "RPOP" {
@@ -146,7 +151,7 @@ impl Interpreter {
                                 error!("Failed to append to AOF: {}", e);
                             }
                             return RespValue::BulkString(Some(val));
-                        },
+                        }
                         Ok(None) => return RespValue::BulkString(None),
                         Err(e) => return RespValue::Error(e),
                     }
@@ -158,33 +163,42 @@ impl Interpreter {
                     }
                 } else if cmd_upper == "LRANGE" {
                     if tokens.len() != 4 {
-                        return RespValue::Error("wrong number of arguments for 'LRANGE' command".to_string());
+                        return RespValue::Error(
+                            "wrong number of arguments for 'LRANGE' command".to_string(),
+                        );
                     }
                     let start_str = &tokens[2];
                     let stop_str = &tokens[3];
-                    
+
                     match (start_str.parse::<i64>(), stop_str.parse::<i64>()) {
                         (Ok(start), Ok(stop)) => {
                             let mut db = self.db.lock();
                             match db.lrange(item, start, stop) {
                                 Ok(values) => {
-                                    let resp_values: Vec<RespValue> = values.into_iter()
+                                    let resp_values: Vec<RespValue> = values
+                                        .into_iter()
                                         .map(|s| RespValue::BulkString(Some(s)))
                                         .collect();
                                     return RespValue::Array(Some(resp_values));
-                                },
+                                }
                                 Err(e) => return RespValue::Error(e),
                             }
-                        },
-                        _ => return RespValue::Error("value is not an integer or out of range".to_string()),
+                        }
+                        _ => {
+                            return RespValue::Error(
+                                "value is not an integer or out of range".to_string(),
+                            )
+                        }
                     }
                 } else if cmd_upper == "HSET" {
                     if tokens.len() != 4 {
-                        return RespValue::Error("wrong number of arguments for 'HSET' command".to_string());
+                        return RespValue::Error(
+                            "wrong number of arguments for 'HSET' command".to_string(),
+                        );
                     }
                     let field = tokens[2].clone();
                     let value = tokens[3].clone();
-                    
+
                     let mut db = self.db.lock();
                     match db.hset(item, field, value) {
                         Ok(val) => {
@@ -194,15 +208,17 @@ impl Interpreter {
                                 error!("Failed to append to AOF: {}", e);
                             }
                             return RespValue::Integer(val as i64);
-                        },
+                        }
                         Err(e) => return RespValue::Error(e),
                     }
                 } else if cmd_upper == "HGET" {
                     if tokens.len() != 3 {
-                        return RespValue::Error("wrong number of arguments for 'HGET' command".to_string());
+                        return RespValue::Error(
+                            "wrong number of arguments for 'HGET' command".to_string(),
+                        );
                     }
                     let field = tokens[2].clone();
-                    
+
                     let mut db = self.db.lock();
                     match db.hget(item, field) {
                         Ok(Some(val)) => return RespValue::BulkString(Some(val)),
@@ -213,19 +229,22 @@ impl Interpreter {
                     let mut db = self.db.lock();
                     match db.hgetall(item) {
                         Ok(values) => {
-                            let resp_values: Vec<RespValue> = values.into_iter()
+                            let resp_values: Vec<RespValue> = values
+                                .into_iter()
                                 .map(|s| RespValue::BulkString(Some(s)))
                                 .collect();
                             return RespValue::Array(Some(resp_values));
-                        },
+                        }
                         Err(e) => return RespValue::Error(e),
                     }
                 } else if cmd_upper == "HDEL" {
                     if tokens.len() != 3 {
-                        return RespValue::Error("wrong number of arguments for 'HDEL' command".to_string());
+                        return RespValue::Error(
+                            "wrong number of arguments for 'HDEL' command".to_string(),
+                        );
                     }
                     let field = tokens[2].clone();
-                    
+
                     let mut db = self.db.lock();
                     match db.hdel(item, field) {
                         Ok(val) => {
@@ -235,7 +254,7 @@ impl Interpreter {
                                 error!("Failed to append to AOF: {}", e);
                             }
                             return RespValue::Integer(val as i64);
-                        },
+                        }
                         Err(e) => return RespValue::Error(e),
                     }
                 } else if cmd_upper == "EXPIRE" {
@@ -243,7 +262,7 @@ impl Interpreter {
                         if let Ok(seconds) = seconds_str.parse::<u64>() {
                             let mut db = self.db.lock();
                             let result = db.expire(item, seconds);
-                            
+
                             if result {
                                 // Persist to AOF
                                 let mut aof = self.aof.lock();
@@ -251,13 +270,17 @@ impl Interpreter {
                                     error!("Failed to append to AOF: {}", e);
                                 }
                             }
-                            
+
                             return RespValue::Integer(if result { 1 } else { 0 });
                         } else {
-                            return RespValue::Error("value is not an integer or out of range".to_string());
+                            return RespValue::Error(
+                                "value is not an integer or out of range".to_string(),
+                            );
                         }
                     } else {
-                        return RespValue::Error("wrong number of arguments for 'EXPIRE' command".to_string());
+                        return RespValue::Error(
+                            "wrong number of arguments for 'EXPIRE' command".to_string(),
+                        );
                     }
                 } else if cmd_upper == "TTL" {
                     let mut db = self.db.lock();
@@ -266,7 +289,7 @@ impl Interpreter {
                 } else if cmd_upper == "PERSIST" {
                     let mut db = self.db.lock();
                     let result = db.persist(item);
-                    
+
                     if result {
                         // Persist to AOF
                         let mut aof = self.aof.lock();
@@ -274,7 +297,7 @@ impl Interpreter {
                             error!("Failed to append to AOF: {}", e);
                         }
                     }
-                    
+
                     return RespValue::Integer(if result { 1 } else { 0 });
                 }
             }
@@ -284,4 +307,3 @@ impl Interpreter {
         RespValue::Error("unknown command".to_string())
     }
 }
-

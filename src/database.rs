@@ -18,6 +18,12 @@ pub struct DB {
     items: HashMap<String, Entry>,
 }
 
+impl Default for DB {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DB {
     pub fn new() -> Self {
         DB {
@@ -99,12 +105,10 @@ impl DB {
                 .filter(|(k, _)| k.starts_with(prefix))
                 .map(|(k, _)| k.clone())
                 .collect()
+        } else if self.exists(pattern.clone()) {
+            vec![pattern]
         } else {
-            if self.exists(pattern.clone()) {
-                vec![pattern]
-            } else {
-                vec![]
-            }
+            vec![]
         }
     }
 

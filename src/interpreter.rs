@@ -21,7 +21,7 @@ impl Interpreter {
     pub fn exec_args(&mut self, tokens: Vec<String>) -> RespValue {
         debug!("Executing command: {:?}", tokens);
 
-        if let Some(cmd) = tokens.get(0).cloned() {
+        if let Some(cmd) = tokens.first().cloned() {
             let cmd_upper = cmd.to_uppercase();
 
             // Handle KEYS command

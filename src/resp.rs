@@ -35,6 +35,12 @@ pub struct RespHandler {
     // We might need internal buffer state later for partial reads
 }
 
+impl Default for RespHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RespHandler {
     pub fn new() -> Self {
         RespHandler {}

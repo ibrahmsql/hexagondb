@@ -13,11 +13,7 @@ pub struct Aof {
 
 impl Aof {
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .append(true)
-            .open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(path)?;
 
         Ok(Aof { file })
     }

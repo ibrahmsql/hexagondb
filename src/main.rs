@@ -7,7 +7,6 @@ use std::net::TcpListener;
 use std::sync::Arc;
 use std::thread;
 use tracing::{error, info};
-use tracing_subscriber;
 
 fn main() -> std::io::Result<()> {
     // Initialize logging

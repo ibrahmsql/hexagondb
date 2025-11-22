@@ -9,7 +9,7 @@ pub fn parse_query(query: String) -> Vec<String> {
         }
 
         if chr == ' ' && !in_quotes {
-            if keyword != "" {
+            if !keyword.is_empty() {
                 parsed.push(keyword);
                 keyword = String::from("");
             }
@@ -17,7 +17,7 @@ pub fn parse_query(query: String) -> Vec<String> {
             keyword.push(chr);
         }
     }
-    if keyword != "" {
+    if !keyword.is_empty() {
         parsed.push(keyword);
     }
 

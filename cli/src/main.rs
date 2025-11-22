@@ -290,9 +290,8 @@ fn main() -> anyhow::Result<()> {
                         }
                         std::io::stdout().flush()?;
                         // Read new password
-                        let new_pass = rpassword::read_password()?;
-                        // Update password for next attempt
-                        // We'll use the new password in next iteration
+                        let _new_pass = rpassword::read_password()?;
+                        // Password will be re-read in next iteration
                         continue;
                     } else {
                         if !cli.no_color {

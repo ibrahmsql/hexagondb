@@ -1,4 +1,4 @@
-// Core modules - old structure (will be refactored)
+// Core modules
 pub mod aof;
 pub mod connection;
 pub mod database;

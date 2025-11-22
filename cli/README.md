@@ -8,7 +8,8 @@ Interactive command-line client for HexagonDB.
 - 📝 Command history
 - 🔄 Auto-reconnect
 - ⚡ RESP protocol support
-- 🎯 Tab completion (coming soon)
+- 🎯 Tab completion
+- 🚀 Single command execution mode
 
 ## Usage
 

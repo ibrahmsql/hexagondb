@@ -136,13 +136,20 @@ impl Completer for HexagonHelper {
         }
 
         let word_upper = word.to_uppercase();
+        let is_lowercase = word.chars().all(|c| !c.is_uppercase());
 
         // Find matching commands
         for cmd in &self.commands {
             if cmd.starts_with(&word_upper) {
+                // Preserve user's case preference
+                let replacement = if is_lowercase {
+                    cmd.to_lowercase()
+                } else {
+                    cmd.clone()
+                };
                 matches.push(Pair {
                     display: cmd.clone(),
-                    replacement: cmd.clone(),
+                    replacement,
                 });
             }
         }

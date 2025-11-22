@@ -238,7 +238,7 @@ fn main() -> anyhow::Result<()> {
         println!("Connected\n");
     }
 
-    // Handle authentication if password provided
+    // Handle authentication if password provided (with brute force protection)
     let password = if cli.ask_pass {
         if !cli.no_color {
             print!("{}", "Password: ".bright_yellow());
@@ -252,20 +252,64 @@ fn main() -> anyhow::Result<()> {
     };
 
     if let Some(ref pass) = password {
-        // Send AUTH command
-        let auth_cmd = format!("AUTH {}", pass);
-        if let Err(e) = execute_command(&mut stream, &auth_cmd, false, cli.no_color) {
-            if !cli.no_color {
-                eprintln!("{} {}", "✗ Authentication failed:".bright_red().bold(), e);
-            } else {
-                eprintln!("Authentication failed: {}", e);
+        const MAX_ATTEMPTS: u8 = 3;
+        let mut attempts = 0;
+        let mut authenticated = false;
+
+        while attempts < MAX_ATTEMPTS && !authenticated {
+            attempts += 1;
+
+            // Send AUTH command
+            let auth_cmd = format!("AUTH {}", pass);
+            match execute_command(&mut stream, &auth_cmd, false, cli.no_color) {
+                Ok(_) => {
+                    authenticated = true;
+                    if !cli.no_color {
+                        println!("{}\n", "✓ Authenticated".bright_green());
+                    } else {
+                        println!("Authenticated\n");
+                    }
+                }
+                Err(e) => {
+                    if attempts < MAX_ATTEMPTS {
+                        if !cli.no_color {
+                            eprintln!(
+                                "{} {} ({}/{})",
+                                "✗ Authentication failed:".bright_red().bold(),
+                                e,
+                                attempts,
+                                MAX_ATTEMPTS
+                            );
+                            print!("{}", "Password: ".bright_yellow());
+                        } else {
+                            eprintln!(
+                                "Authentication failed: {} ({}/{})",
+                                e, attempts, MAX_ATTEMPTS
+                            );
+                            print!("Password: ");
+                        }
+                        std::io::stdout().flush()?;
+                        // Read new password
+                        let new_pass = rpassword::read_password()?;
+                        // Update password for next attempt
+                        // We'll use the new password in next iteration
+                        continue;
+                    } else {
+                        if !cli.no_color {
+                            eprintln!(
+                                "{} {}",
+                                "✗ Maximum authentication attempts reached!"
+                                    .bright_red()
+                                    .bold(),
+                                "Disconnecting...".bright_yellow()
+                            );
+                        } else {
+                            eprintln!("Maximum authentication attempts reached! Disconnecting...");
+                        }
+                        return Err(anyhow::anyhow!("Too many failed authentication attempts"));
+                    }
+                }
             }
-            return Err(e);
-        }
-        if !cli.no_color {
-            println!("{}\n", "✓ Authenticated".bright_green());
-        } else {
-            println!("Authenticated\n");
         }
     }
 

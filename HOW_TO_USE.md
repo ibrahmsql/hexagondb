@@ -140,16 +140,27 @@ hexagondb-cli -a mypass
 ### Brute Force Protection
 
 **Built-in Protection:**
-- ❌ **NOT YET IMPLEMENTED** - Coming soon!
-- Will limit password attempts to 3 tries
-- Auto-disconnect after failed attempts
-- Temporary IP blocking (future feature)
+- ✅ **IMPLEMENTED** - Password attempts limited to 3 tries
+- ✅ Auto-disconnect after failed attempts
+- ✅ Attempt counter displayed (1/3, 2/3, 3/3)
+- ⚠️ Temporary IP blocking (future feature)
 
-**Current Limitation:**
+**How It Works:**
+```bash
+hexagondb-cli --ask-pass
+Password: ********
+✗ Authentication failed: ERR invalid password (1/3)
+Password: ********
+✗ Authentication failed: ERR invalid password (2/3)
+Password: ********
+✗ Maximum authentication attempts reached! Disconnecting...
 ```
-⚠️ WARNING: No brute force protection yet!
-Implement rate limiting at firewall level for now.
-```
+
+**Current Protection:**
+- Maximum 3 password attempts per connection
+- Automatic disconnect on failure
+- User must reconnect to retry
+- Prevents automated brute force attacks
 
 **Recommended Protection (Manual):**
 ```bash
@@ -466,8 +477,7 @@ backend hexagondb_back
 
 #### Replication (Future)
 ```
-⚠️ NOT YET IMPLEMENTED
-Master-slave replication coming soon!
+⚠️ Master-slave replication coming soon!
 ```
 
 ---

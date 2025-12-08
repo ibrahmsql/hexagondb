@@ -67,7 +67,8 @@ pub struct ReplicationManager {
     slaves: RwLock<HashMap<String, SlaveInfo>>,
     /// Replication backlog for partial sync
     backlog: RwLock<ReplicationBacklog>,
-    /// Whether replication is active
+    /// Whether replication is active (reserved for future use)
+    #[allow(dead_code)]
     active: AtomicBool,
     /// Command broadcast channel for slaves
     command_tx: broadcast::Sender<ReplicationCommand>,

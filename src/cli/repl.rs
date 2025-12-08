@@ -2,7 +2,7 @@
 //!
 //! Interactive shell with vim mode, auto-complete, and hints.
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead};
 
 use rustyline::error::ReadlineError;
 use rustyline::history::DefaultHistory;

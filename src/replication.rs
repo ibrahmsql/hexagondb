@@ -4,11 +4,10 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use parking_lot::RwLock;
 use tokio::sync::broadcast;
-use tracing::{info, warn, error};
+use tracing::info;
 
 /// Replication role
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -501,6 +501,7 @@ dependencies = [
  "dashmap",
  "dirs",
  "geohash",
+ "libc",
  "lz4",
  "metrics",
  "metrics-exporter-prometheus",

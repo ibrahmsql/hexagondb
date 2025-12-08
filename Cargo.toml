@@ -1,5 +1,5 @@
 [workspace]
-members = ["cli"]
+members = []
 
 [package]
 name = "hexagondb"
@@ -23,3 +23,14 @@ toml = "0.9.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.18.1", features = ["v4", "fast-rng"] }
+
+# New dependencies for enhanced features
+dashmap = "6.1"
+lz4 = "1.28"
+rand = "0.8"
+bytes = "1.9"
+thiserror = "2.0"
+geohash = "0.13"
+siphasher = "1.0"
+rustyline = { version = "15", features = ["derive", "with-file-history"] }
+dirs = "5"

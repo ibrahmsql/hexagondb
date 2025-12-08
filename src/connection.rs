@@ -3,12 +3,51 @@ use std::io::{Read, Write};
 use tracing::{error, debug};
 use crate::{interpreter, resp::{RespHandler, RespValue}};
 
+/// Buffer for accumulating incomplete commands across reads
+struct CommandBuffer {
+    data: Vec<u8>,
+}
+
+impl CommandBuffer {
+    fn new() -> Self {
+        CommandBuffer {
+            data: Vec::with_capacity(8192),
+        }
+    }
+
+    /// Append new data to the buffer
+    fn append(&mut self, data: &[u8]) {
+        self.data.extend_from_slice(data);
+    }
+
+    /// Consume processed bytes from the front of the buffer
+    fn consume(&mut self, count: usize) {
+        self.data.drain(..count);
+    }
+
+    /// Get current buffer contents
+    fn as_slice(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Check if buffer is empty
+    fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+    
+    /// Clear the buffer
+    fn clear(&mut self) {
+        self.data.clear();
+    }
+}
+
 pub fn handle_client(mut stream: TcpStream, interpreter: &mut interpreter::Interpreter) {
-    let mut buffer = [0u8; 4096];
+    let mut read_buffer = [0u8; 4096];
+    let mut cmd_buffer = CommandBuffer::new();
 
     loop {
-        let n = match stream.read(&mut buffer) {
-            Ok(0) => return,
+        let n = match stream.read(&mut read_buffer) {
+            Ok(0) => return, // Connection closed
             Ok(n) => n,
             Err(e) => {
                 error!("Error reading from stream: {}", e);
@@ -16,11 +55,15 @@ pub fn handle_client(mut stream: TcpStream, interpreter: &mut interpreter::Inter
             }
         };
 
-        let mut current_pos = 0;
-        while current_pos < n {
-            match RespHandler::parse_request(&buffer[current_pos..n]) {
+        // Append new data to command buffer
+        cmd_buffer.append(&read_buffer[..n]);
+
+        // Process all complete commands in the buffer
+        loop {
+            match RespHandler::parse_request(cmd_buffer.as_slice()) {
                 Ok(Some((value, len))) => {
-                    current_pos += len;
+                    // Successfully parsed a command
+                    cmd_buffer.consume(len);
                     
                     // Convert RESP value to arguments
                     let args = match value {
@@ -33,7 +76,7 @@ pub fn handle_client(mut stream: TcpStream, interpreter: &mut interpreter::Inter
                                 }
                             }).collect()
                         },
-                        _ => Vec::new(), // Should not happen with valid commands
+                        _ => Vec::new(),
                     };
 
                     if args.is_empty() {
@@ -49,17 +92,28 @@ pub fn handle_client(mut stream: TcpStream, interpreter: &mut interpreter::Inter
                     }
                 },
                 Ok(None) => {
-                    // Incomplete command, for now just break (in real impl we need a buffer)
-                    debug!("Incomplete command received");
+                    // Incomplete command - wait for more data
+                    // The buffer retains partial data for the next read
+                    debug!("Incomplete command, waiting for more data ({} bytes buffered)", cmd_buffer.data.len());
                     break;
                 },
                 Err(e) => {
                     error!("Protocol error: {}", e);
                     let err_resp = RespValue::Error(format!("Protocol error: {}", e));
                     let _ = stream.write_all(err_resp.serialize().as_bytes());
+                    // Clear buffer on protocol error to allow recovery
+                    cmd_buffer.clear();
                     return;
                 }
             }
+        }
+
+        // Prevent buffer from growing too large (DoS protection)
+        if cmd_buffer.data.len() > 64 * 1024 * 1024 {
+            error!("Command buffer too large, closing connection");
+            let err_resp = RespValue::Error("ERR request too large".to_string());
+            let _ = stream.write_all(err_resp.serialize().as_bytes());
+            return;
         }
     }
 }

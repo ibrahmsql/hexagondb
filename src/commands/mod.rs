@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::db::pubsub::PubSub;
 use crate::db::DB;
-use crate::db::{GenericOps, HashOps, ListOps, SetOps, StringOps};
+use crate::db::{GenericOps, HashOps, ListOps, SetOps, StringOps, ZSetOps, BitmapOps, StreamOps, GeoOps, HyperLogLogOps};
 use crate::network::resp::RespValue;
 use crate::observability::metrics::{METRIC_COMMANDS_TOTAL, METRIC_COMMAND_LATENCY};
 use crate::persistence::aof::Aof;
@@ -199,7 +199,7 @@ impl Interpreter {
                     }
                 } else if cmd_upper == "DEL" {
                     let mut db = self.db.write().await;
-                    db.del(key);
+                    db.del(&key);
 
                     let mut aof = self.aof.write().await;
                     if let Err(e) = aof.append(full_cmd_args) {
@@ -209,7 +209,7 @@ impl Interpreter {
                     return ExecutionResult::Response(RespValue::Integer(1));
                 } else if cmd_upper == "EXISTS" {
                     let db = self.db.read().await;
-                    let exists = db.exists(key);
+                    let exists = db.exists(&key);
                     return ExecutionResult::Response(RespValue::Integer(if exists {
                         1
                     } else {
@@ -218,7 +218,7 @@ impl Interpreter {
                 } else if cmd_upper == "KEYS" {
                     if let Some(pattern) = args.get(0) {
                         let db = self.db.read().await;
-                        let keys = db.keys(pattern.clone());
+                        let keys = db.keys(pattern);
                         let resp_keys: Vec<RespValue> = keys
                             .into_iter()
                             .map(|k| RespValue::BulkString(Some(k)))
@@ -264,7 +264,7 @@ impl Interpreter {
                     let mut db = self.db.write().await;
 
                     let result = if cmd_upper == "LPUSH" {
-                        db.lpush_safe(key, values)
+                        db.lpush(key, values)
                     } else {
                         db.rpush(key, values)
                     };
@@ -408,7 +408,7 @@ impl Interpreter {
                     if let Some(seconds_str) = args.get(1) {
                         if let Ok(seconds) = seconds_str.parse::<u64>() {
                             let mut db = self.db.write().await;
-                            let result = db.expire(key, seconds);
+                            let result = db.expire(&key, seconds);
 
                             if result {
                                 let mut aof = self.aof.write().await;
@@ -434,11 +434,11 @@ impl Interpreter {
                     }
                 } else if cmd_upper == "TTL" {
                     let mut db = self.db.write().await;
-                    let ttl = db.ttl(key);
+                    let ttl = db.ttl(&key);
                     return ExecutionResult::Response(RespValue::Integer(ttl));
                 } else if cmd_upper == "PERSIST" {
                     let mut db = self.db.write().await;
-                    let result = db.persist(key);
+                    let result = db.persist(&key);
 
                     if result {
                         let mut aof = self.aof.write().await;
@@ -606,7 +606,265 @@ impl Interpreter {
                     return ExecutionResult::Response(RespValue::SimpleString(
                         "Background saving started".to_string(),
                     ));
-                } else {
+                } 
+                // ===== DBSIZE =====
+                else if cmd_upper == "DBSIZE" {
+                    let db = self.db.read().await;
+                    let size = db.dbsize();
+                    return ExecutionResult::Response(RespValue::Integer(size as i64));
+                }
+                // ===== ZADD =====
+                else if cmd_upper == "ZADD" {
+                    if args.len() < 3 || args.len() % 2 == 0 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'ZADD' command".to_string(),
+                        ));
+                    }
+                    let mut members = Vec::new();
+                    for i in (1..args.len()).step_by(2) {
+                        if let Ok(score) = args[i].parse::<f64>() {
+                            let member = args[i + 1].clone();
+                            members.push((score, member));
+                        }
+                    }
+                    let mut db = self.db.write().await;
+                    match db.zadd(key.clone(), members) {
+                        Ok(added) => {
+                            let mut aof = self.aof.write().await;
+                            let _ = aof.append(full_cmd_args);
+                            return ExecutionResult::Response(RespValue::Integer(added as i64));
+                        }
+                        Err(e) => return ExecutionResult::Response(RespValue::Error(e)),
+                    }
+                }
+                // ===== ZRANGE =====
+                else if cmd_upper == "ZRANGE" {
+                    if args.len() < 3 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'ZRANGE' command".to_string(),
+                        ));
+                    }
+                    let start: i64 = args[1].parse().unwrap_or(0);
+                    let stop: i64 = args[2].parse().unwrap_or(-1);
+                    let withscores = args.get(3).map(|s| s.to_uppercase() == "WITHSCORES").unwrap_or(false);
+                    let mut db = self.db.write().await;
+                    let items = db.zrange(key.clone(), start, stop, withscores);
+                    let resp: Vec<RespValue> = items.into_iter()
+                        .flat_map(|(member, score)| {
+                            if withscores {
+                                vec![
+                                    RespValue::BulkString(Some(member)),
+                                    RespValue::BulkString(score.map(|s| s.to_string()))
+                                ]
+                            } else {
+                                vec![RespValue::BulkString(Some(member))]
+                            }
+                        })
+                        .collect();
+                    return ExecutionResult::Response(RespValue::Array(Some(resp)));
+                }
+                // ===== ZSCORE =====
+                else if cmd_upper == "ZSCORE" {
+                    if args.len() < 2 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'ZSCORE' command".to_string(),
+                        ));
+                    }
+                    let mut db = self.db.write().await;
+                    match db.zscore(key.clone(), args[1].clone()) {
+                        Some(score) => {
+                            return ExecutionResult::Response(RespValue::BulkString(Some(score.to_string())));
+                        }
+                        None => return ExecutionResult::Response(RespValue::BulkString(None)),
+                    }
+                }
+                // ===== ZCARD =====
+                else if cmd_upper == "ZCARD" {
+                    let mut db = self.db.write().await;
+                    let count = db.zcard(key.clone());
+                    return ExecutionResult::Response(RespValue::Integer(count as i64));
+                }
+                // ===== ZREM =====
+                else if cmd_upper == "ZREM" {
+                    if args.len() < 2 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'ZREM' command".to_string(),
+                        ));
+                    }
+                    let mut db = self.db.write().await;
+                    let members: Vec<String> = args[1..].to_vec();
+                    match db.zrem(key.clone(), members) {
+                        Ok(count) => {
+                            let mut aof = self.aof.write().await;
+                            let _ = aof.append(full_cmd_args);
+                            return ExecutionResult::Response(RespValue::Integer(count as i64));
+                        }
+                        Err(e) => return ExecutionResult::Response(RespValue::Error(e)),
+                    }
+                }
+                // ===== PFADD =====
+                else if cmd_upper == "PFADD" {
+                    if args.len() < 2 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'PFADD' command".to_string(),
+                        ));
+                    }
+                    let mut db = self.db.write().await;
+                    let elements: Vec<String> = args[1..].to_vec();
+                    let changed = db.pfadd(key.clone(), elements);
+                    let mut aof = self.aof.write().await;
+                    let _ = aof.append(full_cmd_args);
+                    return ExecutionResult::Response(RespValue::Integer(if changed { 1 } else { 0 }));
+                }
+                // ===== PFCOUNT =====
+                else if cmd_upper == "PFCOUNT" {
+                    if args.is_empty() {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'PFCOUNT' command".to_string(),
+                        ));
+                    }
+                    let mut db = self.db.write().await;
+                    let keys: Vec<String> = args.clone();
+                    let count = db.pfcount(keys);
+                    return ExecutionResult::Response(RespValue::Integer(count as i64));
+                }
+                // ===== SETBIT =====
+                else if cmd_upper == "SETBIT" {
+                    if args.len() < 3 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'SETBIT' command".to_string(),
+                        ));
+                    }
+                    let offset: usize = args[1].parse().unwrap_or(0);
+                    let value: bool = args[2].parse::<u8>().unwrap_or(0) != 0;
+                    let mut db = self.db.write().await;
+                    let old = db.setbit(key.clone(), offset, value);
+                    let mut aof = self.aof.write().await;
+                    let _ = aof.append(full_cmd_args);
+                    return ExecutionResult::Response(RespValue::Integer(old));
+                }
+                // ===== GETBIT =====
+                else if cmd_upper == "GETBIT" {
+                    if args.len() < 2 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'GETBIT' command".to_string(),
+                        ));
+                    }
+                    let offset: usize = args[1].parse().unwrap_or(0);
+                    let mut db = self.db.write().await;
+                    let bit = db.getbit(key.clone(), offset);
+                    return ExecutionResult::Response(RespValue::Integer(bit));
+                }
+                // ===== BITCOUNT =====
+                else if cmd_upper == "BITCOUNT" {
+                    let mut db = self.db.write().await;
+                    let start = args.get(1).and_then(|s| s.parse().ok());
+                    let end = args.get(2).and_then(|s| s.parse().ok());
+                    let count = db.bitcount(key.clone(), start, end);
+                    return ExecutionResult::Response(RespValue::Integer(count as i64));
+                }
+                // ===== XADD =====
+                else if cmd_upper == "XADD" {
+                    if args.len() < 4 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'XADD' command".to_string(),
+                        ));
+                    }
+                    let id = if args[1] == "*" { None } else { Some(args[1].clone()) };
+                    let mut fields = Vec::new();
+                    for i in (2..args.len()).step_by(2) {
+                        if let Some(value) = args.get(i + 1) {
+                            fields.push((args[i].clone(), value.clone()));
+                        }
+                    }
+                    let mut db = self.db.write().await;
+                    match db.xadd(key.clone(), id, fields) {
+                        Ok(entry_id) => {
+                            let mut aof = self.aof.write().await;
+                            let _ = aof.append(full_cmd_args);
+                            return ExecutionResult::Response(RespValue::BulkString(Some(entry_id)));
+                        }
+                        Err(e) => return ExecutionResult::Response(RespValue::Error(e)),
+                    }
+                }
+                // ===== XLEN =====
+                else if cmd_upper == "XLEN" {
+                    let mut db = self.db.write().await;
+                    let len = db.xlen(key.clone());
+                    return ExecutionResult::Response(RespValue::Integer(len as i64));
+                }
+                // ===== GEOADD =====
+                else if cmd_upper == "GEOADD" {
+                    if args.len() < 4 || (args.len() - 1) % 3 != 0 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'GEOADD' command".to_string(),
+                        ));
+                    }
+                    let mut db = self.db.write().await;
+                    let mut locations = Vec::new();
+                    for i in (1..args.len()).step_by(3) {
+                        if let (Ok(lon), Ok(lat)) = (args[i].parse::<f64>(), args[i+1].parse::<f64>()) {
+                            let member = args[i + 2].clone();
+                            locations.push((lon, lat, member));
+                        }
+                    }
+                    let added = db.geoadd(key.clone(), locations);
+                    let mut aof = self.aof.write().await;
+                    let _ = aof.append(full_cmd_args);
+                    return ExecutionResult::Response(RespValue::Integer(added as i64));
+                }
+                // ===== GEODIST =====
+                else if cmd_upper == "GEODIST" {
+                    if args.len() < 3 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'GEODIST' command".to_string(),
+                        ));
+                    }
+                    use crate::db::ops::geo::GeoUnit;
+                    let unit = match args.get(3).map(|s| s.to_uppercase()).as_deref() {
+                        Some("KM") => GeoUnit::Kilometers,
+                        Some("MI") => GeoUnit::Miles,
+                        Some("FT") => GeoUnit::Feet,
+                        _ => GeoUnit::Meters,
+                    };
+                    let mut db = self.db.write().await;
+                    match db.geodist(key.clone(), args[1].clone(), args[2].clone(), unit) {
+                        Some(dist) => {
+                            return ExecutionResult::Response(RespValue::BulkString(Some(format!("{:.4}", dist))));
+                        }
+                        None => return ExecutionResult::Response(RespValue::BulkString(None)),
+                    }
+                }
+                // ===== TYPE =====
+                else if cmd_upper == "TYPE" {
+                    let db = self.db.read().await;
+                    let type_str = db.type_of(&key).unwrap_or_else(|| "none".to_string());
+                    return ExecutionResult::Response(RespValue::SimpleString(type_str));
+                }
+                // ===== RENAME =====
+                else if cmd_upper == "RENAME" {
+                    if args.len() < 2 {
+                        return ExecutionResult::Response(RespValue::Error(
+                            "wrong number of arguments for 'RENAME' command".to_string(),
+                        ));
+                    }
+                    let mut db = self.db.write().await;
+                    match db.rename(&key, &args[1]) {
+                        Ok(_) => {
+                            let mut aof = self.aof.write().await;
+                            let _ = aof.append(full_cmd_args);
+                            return ExecutionResult::Response(RespValue::SimpleString("OK".to_string()));
+                        }
+                        Err(e) => return ExecutionResult::Response(RespValue::Error(e)),
+                    }
+                }
+                // ===== FLUSHDB =====
+                else if cmd_upper == "FLUSHDB" {
+                    let mut db = self.db.write().await;
+                    db.flushdb();
+                    return ExecutionResult::Response(RespValue::SimpleString("OK".to_string()));
+                }
+                else {
                     return ExecutionResult::Response(RespValue::Error(format!(
                         "unknown command '{}'",
                         cmd_string
